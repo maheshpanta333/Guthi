@@ -8,21 +8,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ScrollView,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 
 export default function SignupScreen() {
+  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const router = useRouter();
 
   const handleSignup = () => {
-    if (!phone || !password) {
-      alert('कृपया मोबाइल नम्बर र पासवर्ड राख्नुहोस्।');
+    if (!fullName || !phone || !password) {
+      alert('कृपया सबै आवश्यक विवरणहरू प्रविष्ट गर्नुहोस्।');
       return;
     }
-    // Route to verify screen for phone confirmation during signup
-    router.push({ pathname: '/verify', params: { phone } });
+    router.replace('/(auth)/login');
   };
 
   return (
@@ -31,100 +32,120 @@ export default function SignupScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.innerContainer}
       >
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <View style={styles.iconCircle}>
-              <Text style={styles.icon}>🪷</Text>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.panelBox}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.panelTitle}>नयाँ सदस्याता दर्ता फारम</Text>
+              <Text style={styles.panelSub}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
             </View>
-            <Text style={styles.orgTitle}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
-            <Text style={styles.subtitle}>नयाँ सदस्य दर्ता</Text>
+
+            <View style={styles.formContainer}>
+              <Text style={styles.inputLabel}>पूरा नाम (Full Name)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="तपाईको पूरा नाम"
+                placeholderTextColor="#A8A29E"
+                value={fullName}
+                onChangeText={setFullName}
+              />
+
+              <Text style={styles.inputLabel}>मोबाइल नम्बर (Mobile Number)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="९८XXXXXXXX"
+                placeholderTextColor="#A8A29E"
+                keyboardType="phone-pad"
+                maxLength={10}
+                value={phone}
+                onChangeText={setPhone}
+              />
+
+              <Text style={styles.inputLabel}>पासवर्ड सिर्जना गर्नुहोस् (Password)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="••••••••"
+                placeholderTextColor="#A8A29E"
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+
+              <TouchableOpacity style={styles.submitButton} onPress={handleSignup} activeOpacity={0.9}>
+                <Text style={styles.submitButtonText}>दर्ता पेश गर्नुहोस् (Register)</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.panelFooter}>
+              <Text style={styles.footerText}>पहिले नै खाता छ? </Text>
+              <Link href="/(auth)/login" style={styles.footerLink}>
+                लगइन गर्नुहोस्
+              </Link>
+            </View>
           </View>
-
-          <View style={styles.form}>
-            <Text style={styles.label}>मोबाइल नम्बर</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="९८XXXXXXXX"
-              placeholderTextColor="#A8A29E"
-              keyboardType="phone-pad"
-              maxLength={10}
-              value={phone}
-              onChangeText={setPhone}
-            />
-
-            <Text style={styles.label}>नयाँ पासवर्ड</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor="#A8A29E"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            <TouchableOpacity style={styles.primaryButton} onPress={handleSignup}>
-              <Text style={styles.buttonText}>अगाडि बढ्नुहोस् (OTP पठाउनुहोस्)</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>पहिले नै खाता छ? </Text>
-            <Link href="/login" style={styles.link}>
-              लगइन गर्नुहोस्
-            </Link>
-          </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF5EF' },
-  innerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
-  card: {
+  container: { flex: 1, backgroundColor: '#EFEFEF' },
+  innerContainer: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  panelBox: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 440,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: '#7C2D12',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: '#CBD5E1',
+    borderRadius: 4,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    marginVertical: 20,
   },
-  header: { alignItems: 'center', marginBottom: 20 },
-  iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFEDD5',
-    justifyContent: 'center',
+  panelHeader: {
+    backgroundColor: '#881337',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 3,
+    borderBottomColor: '#D97706',
+  },
+  panelTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
+  panelSub: { fontSize: 12, color: '#FEE2E2', fontWeight: '600' },
+  formContainer: { padding: 20 },
+  inputLabel: { fontSize: 12, fontWeight: '700', color: '#1C1917', marginBottom: 6 },
+  textInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+    color: '#1C1917',
+    marginBottom: 16,
+  },
+  submitButton: {
+    backgroundColor: '#881337',
+    borderRadius: 3,
+    paddingVertical: 13,
     alignItems: 'center',
-    marginBottom: 10,
+    marginTop: 4,
   },
-  icon: { fontSize: 26 },
-  orgTitle: { fontSize: 16, fontWeight: '700', color: '#9A3412', textAlign: 'center', lineHeight: 22, marginBottom: 4 },
-  subtitle: { fontSize: 13, color: '#78350F' },
-  form: { width: '100%' },
-  label: { fontSize: 12, fontWeight: '600', color: '#44403C', marginBottom: 6 },
-  input: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FFEDD5',
-    borderRadius: 12,
-    paddingHorizontal: 14,
+  submitButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  panelFooter: {
+    backgroundColor: '#F3F4F6',
     paddingVertical: 12,
-    fontSize: 15,
-    color: '#292524',
-    marginBottom: 14,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
-  primaryButton: { backgroundColor: '#EA580C', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 6 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
-  footerText: { color: '#78350F', fontSize: 13 },
-  link: { color: '#EA580C', fontSize: 13, fontWeight: '700' },
+  footerText: { fontSize: 13, color: '#4B5563' },
+  footerLink: { fontSize: 13, fontWeight: '700', color: '#881337' },
 });

@@ -18,10 +18,10 @@ export default function LoginScreen() {
 
   const handleLogin = () => {
     if (!phone || !password) {
-      alert('कृपया मोबाइल नम्बर र पासवर्ड राख्नुहोस्।');
+      alert('कृपया मोबाइल नम्बर र पासवर्ड प्रविष्ट गर्नुहोस्।');
       return;
     }
-    router.replace('/');
+    router.replace('/(tabs)');
   };
 
   return (
@@ -30,19 +30,18 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.innerContainer}
       >
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <View style={styles.iconCircle}>
-              <Text style={styles.icon}>🪔</Text>
-            </View>
-            <Text style={styles.orgTitle}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
-            <Text style={styles.subtitle}>नमस्ते! गुठीमा स्वागत छ</Text>
+        <View style={styles.panelBox}>
+          {/* Panel Header */}
+          <View style={styles.panelHeader}>
+            <Text style={styles.panelTitle}>गुठी सदस्य लगइन (Member Portal)</Text>
+            <Text style={styles.panelSub}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
           </View>
 
-          <View style={styles.form}>
-            <Text style={styles.label}>मोबाइल नम्बर</Text>
+          {/* Form Fields */}
+          <View style={styles.formContainer}>
+            <Text style={styles.inputLabel}>मोबाइल नम्बर (Mobile Number)</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               placeholder="९८XXXXXXXX"
               placeholderTextColor="#A8A29E"
               keyboardType="phone-pad"
@@ -51,9 +50,9 @@ export default function LoginScreen() {
               onChangeText={setPhone}
             />
 
-            <Text style={styles.label}>पासवर्ड</Text>
+            <Text style={styles.inputLabel}>पासवर्ड (Password)</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               placeholder="••••••••"
               placeholderTextColor="#A8A29E"
               secureTextEntry
@@ -61,15 +60,16 @@ export default function LoginScreen() {
               onChangeText={setPassword}
             />
 
-            <TouchableOpacity style={styles.primaryButton} onPress={handleLogin}>
-              <Text style={styles.buttonText}>प्रवेश गर्नुहोस्</Text>
+            <TouchableOpacity style={styles.submitButton} onPress={handleLogin} activeOpacity={0.9}>
+              <Text style={styles.submitButtonText}>प्रवेश गर्नुहोस् (Login)</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>नयाँ हुनुहुन्छ? </Text>
-            <Link href="/signup" style={styles.link}>
-              खाता खोल्नुहोस्
+          {/* Footer Link */}
+          <View style={styles.panelFooter}>
+            <Text style={styles.footerText}>खाता छैन? </Text>
+            <Link href="/(auth)/signup" style={styles.footerLink}>
+              नयाँ दर्ता गर्नुहोस्
             </Link>
           </View>
         </View>
@@ -79,51 +79,61 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF5EF' },
-  innerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
-  card: {
+  container: { flex: 1, backgroundColor: '#EFEFEF' },
+  innerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  panelBox: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 440,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: '#7C2D12',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: '#CBD5E1',
+    borderRadius: 4,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  header: { alignItems: 'center', marginBottom: 20 },
-  iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFEDD5',
-    justifyContent: 'center',
+  panelHeader: {
+    backgroundColor: '#881337',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 3,
+    borderBottomColor: '#D97706',
+  },
+  panelTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
+  panelSub: { fontSize: 12, color: '#FEE2E2', fontWeight: '600' },
+  formContainer: { padding: 20 },
+  inputLabel: { fontSize: 12, fontWeight: '700', color: '#1C1917', marginBottom: 6 },
+  textInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+    color: '#1C1917',
+    marginBottom: 16,
+  },
+  submitButton: {
+    backgroundColor: '#881337',
+    borderRadius: 3,
+    paddingVertical: 13,
     alignItems: 'center',
-    marginBottom: 10,
+    marginTop: 4,
   },
-  icon: { fontSize: 26 },
-  orgTitle: { fontSize: 16, fontWeight: '700', color: '#9A3412', textAlign: 'center', lineHeight: 22, marginBottom: 4 },
-  subtitle: { fontSize: 13, color: '#78350F' },
-  form: { width: '100%' },
-  label: { fontSize: 12, fontWeight: '600', color: '#44403C', marginBottom: 6 },
-  input: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FFEDD5',
-    borderRadius: 12,
-    paddingHorizontal: 14,
+  submitButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  panelFooter: {
+    backgroundColor: '#F3F4F6',
     paddingVertical: 12,
-    fontSize: 15,
-    color: '#292524',
-    marginBottom: 14,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
-  primaryButton: { backgroundColor: '#EA580C', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 6 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
-  footerText: { color: '#78350F', fontSize: 13 },
-  link: { color: '#EA580C', fontSize: 13, fontWeight: '700' },
+  footerText: { fontSize: 13, color: '#4B5563' },
+  footerLink: { fontSize: 13, fontWeight: '700', color: '#881337' },
 });
