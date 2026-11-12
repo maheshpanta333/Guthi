@@ -1,176 +1,250 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  ScrollView,
   StyleSheet,
   Text,
+  View,
+  ScrollView,
   TextInput,
   TouchableOpacity,
-  View,
-  FlatList,
+  Image,
+  SafeAreaView,
+  Alert,
+  Platform,
 } from 'react-native';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+
+const fonepayImage = require('../../../assets/images/fonepay.jpg');
 
 export default function MembershipScreen() {
   const [amount, setAmount] = useState('');
   const [txnId, setTxnId] = useState('');
-  
-  // Mock history of past payments
-  const [history, setHistory] = useState([
-    { id: '1', date: '२०८२/११/१५', amount: 'रु. १,०००', status: 'स्वीकृत (Approved)', txn: 'ESEWA98231' },
-    { id: '2', date: '२०८१/११/१०', amount: 'रु. ५००', status: 'स्वीकृत (Approved)', txn: 'KHAL99312' },
-  ]);
+  const [submitting, setSubmitting] = useState(false);
+  const [userPayments, setUserPayments] = useState<any[]>([]);
 
-  const handleSubmitPayment = () => {
-    if (!amount || !txnId) {
-      alert('कृपया रकम र कारोबार संकेत (Transaction ID) राख्नुहोस्।');
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    const q = query(collection(db, 'payments'), where('userId', '==', currentUser.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setUserPayments(list);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const totalVerified = userPayments
+    .filter((p) => p.status === 'verified')
+    .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+  const handleDownloadQr = () => {
+    if (Platform.OS === 'web') {
+      const resolved = typeof Image.resolveAssetSource === 'function'
+        ? Image.resolveAssetSource(fonepayImage)
+        : undefined;
+
+      const assetUri = resolved?.uri ?? '';
+
+      if (!assetUri) {
+        Alert.alert('त्रुटि', 'QR कोड डाउनलोड गर्न सकिएन।');
+        return;
+      }
+
+      const link = document.createElement('a');
+      link.href = assetUri;
+      link.download = 'Mandawya_Bajagain_Guthi_FonePay_QR.jpg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      Alert.alert('जानकारी', 'तपाईंले यो QR कोडलाई आफ्नो मोबाइल ग्यालरीमा सेभ गर्न सक्नुहुन्छ।');
+    }
+  };
+
+  const handlePaymentSubmit = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert('त्रुटि', 'कृपया पहिले लगइन गर्नुहोस्।');
       return;
     }
-    const newRecord = {
-      id: Date.now().toString(),
-      date: 'आज भर्खरै',
-      amount: `रु. ${amount}`,
-      status: 'प्रक्रियामा (Pending)',
-      txn: txnId,
-    };
-    setHistory([newRecord, ...history]);
-    setAmount('');
-    setTxnId('');
-    alert('भुक्तानी विवरण सफलतापूर्वक पेश गरियो!');
+
+    if (!amount.trim() || !txnId.trim()) {
+      Alert.alert('अपूर्ण विवरण', 'कृपया पठाएको रकम र कारोबार संकेत नं. (Transaction ID) प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, 'payments'), {
+        userId: currentUser.uid,
+        email: currentUser.email || 'N/A',
+        amount: amount.trim(),
+        txnId: txnId.trim(),
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert('सफलता', 'तपाईंको भुक्तानी विवरण प्रमाणीकरणको लागि प्रशासकलाई पठाइयो।');
+      setAmount('');
+      setTxnId('');
+    } catch (error: any) {
+      Alert.alert('त्रुटि', error.message || 'डेटा पठाउन सकिएन।');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Bank QR & Details Card */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>🏦 बैंक तथा भुक्तानी विवरण (Bank QR)</Text>
-        <Text style={styles.cardSub}>गुठीको खातामा सहयोग वा सदस्यता शुल्क जम्मा गर्नुहोस्</Text>
-
-        <View style={styles.qrPlaceholder}>
-          <Text style={styles.qrEmoji}>📱</Text>
-          <Text style={styles.qrText}>[ eSewa / Khalti / Bank QR Code ]</Text>
-        </View>
-
-        <View style={styles.bankInfoBox}>
-          <Text style={styles.bankText}><Text style={styles.bold}>बैंक नाम:</Text> ग्लोबल आइएमई बैंक</Text>
-          <Text style={styles.bankText}><Text style={styles.bold}>खाता नाम:</Text> माण्डव्य बजगाईं जाल्पा देवी गुठी</Text>
-          <Text style={styles.bankText}><Text style={styles.bold}>खाता नम्बर:</Text> 012010100XXXXX</Text>
-          <Text style={styles.bankText}><Text style={styles.bold}>eSewa/Khalti:</Text> ९८XXXXXXXX</Text>
-        </View>
-      </View>
-
-      {/* Submit Payment Proof Card */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>📝 भुक्तानी प्रमाणित गर्ने फारम</Text>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         
-        <Text style={styles.label}>पठाएको रकम (रु.)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="उदाहरण: १०००"
-          placeholderTextColor="#A8A29E"
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-        />
-
-        <Text style={styles.label}>कारोबार संकेत नं. (Transaction ID / Voucher No)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="उदाहरण: ESEWA_TXN_123456"
-          placeholderTextColor="#A8A29E"
-          value={txnId}
-          onChangeText={setTxnId}
-        />
-
-        <TouchableOpacity style={styles.primaryButton} onPress={handleSubmitPayment}>
-          <Text style={styles.buttonText}>भुक्तानी पेश गर्नुहोस्</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Payment History Records */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>📜 भुक्तानी इतिहास (Payment Records)</Text>
-        {history.map((item) => (
-          <View key={item.id} style={styles.historyRow}>
-            <View>
-              <Text style={styles.historyAmount}>{item.amount}</Text>
-              <Text style={styles.historyTxn}>Txn: {item.txn} ({item.date})</Text>
-            </View>
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>{item.status}</Text>
-            </View>
+        {/* Compact Payment Tracker & Horizontal Wheel */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>भुक्तानी ट्र्याकर तथा इतिहास</Text>
+          
+          <View style={styles.trackerSummaryBox}>
+            <Text style={styles.trackerSummaryLabel}>कुल प्रमाणित रकम:</Text>
+            <Text style={styles.trackerSummaryValue}>रु. {totalVerified}</Text>
           </View>
-        ))}
-      </View>
-    </ScrollView>
+
+          <Text style={styles.trackerSubHeading}>तपाईंका हालका भुक्तानीहरू:</Text>
+          
+          {userPayments.length === 0 ? (
+            <Text style={styles.emptyText}>कुनै भुक्तानी रेकर्ड फेला परेन।</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.wheelContainer}>
+              {userPayments.map((p) => (
+                <View key={p.id} style={styles.wheelItemCard}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={styles.paymentAmountText}>रु. {p.amount}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: p.status === 'verified' ? '#DCFCE7' : '#FEF3C7' }]}>
+                      <Text style={[styles.statusText, { color: p.status === 'verified' ? '#166534' : '#92400E' }]}>
+                        {p.status === 'verified' ? 'प्रमाणित' : 'प्रक्रियामा'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.paymentTxnText} numberOfLines={1}>Txn: {p.txnId}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Bank & QR Details Card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>बैंक तथा भुक्तानी विवरण (FonePay QR)</Text>
+          <Text style={styles.subText}>गुठीको खातामा सहयोग वा सदस्यता शुल्क जम्मा गर्नुहोस्</Text>
+          
+          <View style={styles.qrContainer}>
+            <Image source={fonepayImage} style={styles.qrImage} resizeMode="contain" />
+            
+            <TouchableOpacity style={styles.payLinkBtn} onPress={handleDownloadQr} activeOpacity={0.85}>
+              <Text style={styles.payLinkText}>QR कोड डाउनलोड गर्नुहोस्</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>
+              • <Text style={styles.bold}>खाता नाम:</Text> MANDAWYA BAJAGAIN JALPA DEVI KULDEWATA GUTHI
+            </Text>
+            <Text style={styles.infoText}>
+              • <Text style={styles.bold}>बैंक:</Text> ग्लोबल आइएमई बैंक (धुलिखेल शाखा)
+            </Text>
+            <Text style={styles.infoText}>
+              • <Text style={styles.bold}>Terminal ID:</Text> 2222030020424714
+            </Text>
+          </View>
+        </View>
+
+        {/* Payment Verification Form */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>भुक्तानी प्रमाणित गर्ने फारम</Text>
+
+          <Text style={styles.label}>पठाएको रकम (रु.):</Text>
+          <TextInput 
+            style={styles.input} 
+            placeholder="उदाहरण: १०००" 
+            keyboardType="numeric"
+            value={amount} 
+            onChangeText={setAmount} 
+          />
+
+          <Text style={styles.label}>कारोबार संकेत नं. (Transaction ID):</Text>
+          <TextInput 
+            style={styles.input} 
+            placeholder="उदाहरण: FONEPAY_TXN_123456" 
+            value={txnId} 
+            onChangeText={setTxnId} 
+          />
+
+          <TouchableOpacity 
+            style={[styles.submitBtn, submitting && styles.disabledBtn]} 
+            onPress={handlePaymentSubmit}
+            disabled={submitting}
+          >
+            <Text style={styles.submitBtnText}>{submitting ? 'पेश गर्दै...' : 'प्रमाणित गर्न पेस गर्नुहोस्'}</Text>
+          </TouchableOpacity>
+        </View>
+
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF5EF' },
-  content: { padding: 16, alignItems: 'center' },
-  card: {
-    width: '100%',
-    maxWidth: 600,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-    elevation: 2,
-  },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#9A3412', marginBottom: 4 },
-  cardSub: { fontSize: 12, color: '#78350F', marginBottom: 16 },
-  qrPlaceholder: {
-    height: 160,
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1.5,
-    borderColor: '#FFEDD5',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  qrEmoji: { fontSize: 36, marginBottom: 6 },
-  qrText: { color: '#C2410C', fontSize: 13, fontWeight: '600' },
-  bankInfoBox: {
-    backgroundColor: '#FFFBEB',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#FEF3C7',
-  },
-  bankText: { fontSize: 13, color: '#44403C', marginBottom: 4 },
-  bold: { fontWeight: '700', color: '#78350F' },
-  label: { fontSize: 12, fontWeight: '600', color: '#44403C', marginBottom: 6, marginTop: 10 },
-  input: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FFEDD5',
-    borderRadius: 10,
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  scrollContent: { padding: 12, paddingBottom: 40 },
+  card: { backgroundColor: '#FFFFFF', padding: 14, borderRadius: 6, marginBottom: 12, borderWidth: 1, borderColor: '#CBD5E1' },
+  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#881337', marginBottom: 4 },
+  subText: { fontSize: 11, color: '#4B5563', marginBottom: 10 },
+  qrContainer: { alignItems: 'center', marginVertical: 8, backgroundColor: '#FAFAFA', padding: 10, borderRadius: 6, borderWidth: 1, borderColor: '#E5E7EB' },
+  qrImage: { width: 180, height: 220 },
+  payLinkBtn: {
+    marginTop: 10,
+    backgroundColor: '#0F172A',
+    paddingVertical: 8,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: '#292524',
+    borderRadius: 4,
   },
-  primaryButton: { backgroundColor: '#EA580C', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  historyRow: {
+  payLinkText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  infoBox: { backgroundColor: '#FFFBEB', padding: 10, borderRadius: 4, borderWidth: 1, borderColor: '#FDE68A', marginTop: 6 },
+  infoText: { fontSize: 12, color: '#374151', marginBottom: 4 },
+  bold: { fontWeight: '700', color: '#1F2937' },
+  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginTop: 8, marginBottom: 3 },
+  input: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 7, fontSize: 12, backgroundColor: '#F9FAFB', color: '#111827' },
+  submitBtn: { backgroundColor: '#881337', borderRadius: 4, paddingVertical: 10, alignItems: 'center', marginTop: 12 },
+  disabledBtn: { opacity: 0.7 },
+  submitBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  trackerSummaryBox: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    padding: 10,
+    borderRadius: 6,
+    marginTop: 6,
+    marginBottom: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F4',
   },
-  historyAmount: { fontSize: 14, fontWeight: '700', color: '#292524' },
-  historyTxn: { fontSize: 11, color: '#78350F', marginTop: 2 },
-  statusBadge: {
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+  trackerSummaryLabel: { fontSize: 12, fontWeight: '700', color: '#166534' },
+  trackerSummaryValue: { fontSize: 14, fontWeight: '900', color: '#166534' },
+  trackerSubHeading: { fontSize: 12, fontWeight: '700', color: '#374151', marginTop: 4, marginBottom: 6 },
+  wheelContainer: { paddingVertical: 4 },
+  wheelItemCard: {
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: '#E5E7EB',
+    padding: 10,
+    borderRadius: 6,
+    marginRight: 8,
+    width: 150,
   },
-  statusText: { fontSize: 11, fontWeight: '600', color: '#047857' },
+  paymentAmountText: { fontSize: 13, fontWeight: '800', color: '#111827' },
+  statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
+  statusText: { fontSize: 9, fontWeight: '700' },
+  paymentTxnText: { fontSize: 11, color: '#4B5563', marginTop: 2 },
+  emptyText: { fontStyle: 'italic', color: '#6B7280', fontSize: 11 },
 });

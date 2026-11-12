@@ -1,96 +1,94 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View, ScrollView, Image, SafeAreaView } from 'react-native';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+
+const guthiLogo = require('../../../assets/images/logo.jpg');
 
 export default function HomeScreen() {
-  const notices = [
-    {
-      id: '1',
-      title: 'वार्षिक कुलपूजा तथा देवाली सम्बन्धी महत्वपूर्ण सूचना',
-      date: '२०८३ बैशाख १५',
-      content: 'यस माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठीको वार्षिक पूजा आगामी बैशाख १५ गते मूल मन्दिर परिसरमा हुने भएकाले सम्पूर्ण बन्धुवानहरूमा अनिवार्य उपस्थितिका लागि हार्दिक अनुरोध गरिन्छ।',
-    },
-    {
-      id: '2',
-      title: 'गुठी साधारण सभा तथा आर्थिक प्रतिवेदन प्रस्तुतसम्बन्धी',
-      date: '२०८३ जेठ ०२',
-      content: 'गुठीको आगामी कार्ययोजना तथा वार्षिक लेखा परीक्षण प्रतिवेदन पेश गर्नका लागि कार्यसमितिको बैठक तथा साधारण सभा आह्वान गरिएको छ।',
-    },
-  ];
+  const [notices, setNotices] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        setNotices(list);
+      },
+      (error) => {
+        console.error('Error fetching notices:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.wrapper}>
-        {/* Institutional Banner Block */}
-        <View style={styles.bannerBlock}>
-          <Text style={styles.bannerTitle}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
-          <Text style={styles.bannerSubtitle}>केन्द्रीय आधिकारिक पोर्टल • धुलिखेल, नेपाल</Text>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.headerBox}>
+          <Image source={guthiLogo} style={styles.bannerLogo} resizeMode="contain" />
+          <Text style={styles.orgTitle}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
+          <Text style={styles.orgSub}>मण्डनदेउपुर नगरपालिका ३, काभ्रेपलाञ्चोक</Text>
         </View>
 
-        {/* Section Heading */}
-        <View style={styles.tableHeaderBar}>
-          <Text style={styles.tableHeaderText}>सूचना तथा समाचार पाटी (Notices & Announcements)</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>📢 गुठीका ताजा सूचनाहरू</Text>
+          {notices.length === 0 ? (
+            <Text style={styles.emptyText}>हाल कुनै नयाँ सूचना उपलब्ध छैन।</Text>
+          ) : (
+            notices.map((notice) => (
+              <View key={notice.id} style={styles.noticeCard}>
+                <Text style={styles.noticeTitle}>{notice.title}</Text>
+                <Text style={styles.noticeDate}>{notice.date}</Text>
+                <Text style={styles.noticeContent}>{notice.content}</Text>
+              </View>
+            ))
+          )}
         </View>
-
-        {/* Notices Stack */}
-        {notices.map((item) => (
-          <View key={item.id} style={styles.noticeRow}>
-            <View style={styles.noticeMetaBar}>
-              <Text style={styles.noticeTitleText}>{item.title}</Text>
-              <Text style={styles.noticeDateText}>{item.date}</Text>
-            </View>
-            <View style={styles.noticeBodyBox}>
-              <Text style={styles.noticeContentText}>{item.content}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9FB' },
-  content: { padding: 20, alignItems: 'center' },
-  wrapper: { width: '100%', maxWidth: 800 },
-  bannerBlock: {
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  headerBox: {
     backgroundColor: '#881337',
-    borderLeftWidth: 6,
-    borderLeftColor: '#D97706',
     padding: 20,
-    marginBottom: 24,
-    borderRadius: 2,
-  },
-  bannerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', marginBottom: 4 },
-  bannerSubtitle: { fontSize: 12.5, color: '#FEE2E2', fontWeight: '600' },
-  tableHeaderBar: {
-    backgroundColor: '#E7E5E4',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#D6D3D1',
-    marginBottom: 12,
-  },
-  tableHeaderText: { fontSize: 13, fontWeight: '700', color: '#1C1917', textTransform: 'uppercase' },
-  noticeRow: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D6D3D1',
-    marginBottom: 12,
-    borderRadius: 2,
-  },
-  noticeMetaBar: {
-    backgroundColor: '#F5F5F4',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    borderRadius: 6,
+    marginBottom: 16,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E7E5E4',
+    borderWidth: 1,
+    borderColor: '#690F2B',
   },
-  noticeTitleText: { fontSize: 14, fontWeight: '700', color: '#1C1917', flex: 1, marginRight: 10 },
-  noticeDateText: { fontSize: 12, fontWeight: '700', color: '#9F1239' },
-  noticeBodyBox: { padding: 14 },
-  noticeContentText: { fontSize: 13.5, color: '#44403C', lineHeight: 21 },
+  bannerLogo: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#FDE68A',
+  },
+  orgTitle: { fontSize: 17, fontWeight: '900', color: '#FFFFFF', textAlign: 'center' },
+  orgSub: { fontSize: 12, fontWeight: '600', color: '#FEE2E2', marginTop: 4 },
+  card: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 6, marginBottom: 16, borderWidth: 1, borderColor: '#CBD5E1' },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#1F2937', marginBottom: 12 },
+  emptyText: { fontSize: 13, color: '#6B7280', fontStyle: 'italic', textAlign: 'center', marginVertical: 8 },
+  noticeCard: {
+    backgroundColor: '#FAFAFA',
+    padding: 12,
+    borderRadius: 4,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderLeftWidth: 4,
+    borderLeftColor: '#881337',
+  },
+  noticeTitle: { fontSize: 14, fontWeight: '800', color: '#111827' },
+  noticeDate: { fontSize: 11, color: '#6B7280', marginVertical: 2 },
+  noticeContent: { fontSize: 13, color: '#374151', marginTop: 4 },
 });

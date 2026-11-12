@@ -1,553 +1,613 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ScrollView,
   StyleSheet,
   Text,
+  View,
+  ScrollView,
   TextInput,
   TouchableOpacity,
-  View,
   Image,
+  SafeAreaView,
   Alert,
   Platform,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db, storage } from '../../config/firebase';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  getDocs,
+  updateDoc,
+  runTransaction,
+  serverTimestamp,
+  query,
+  where,
+  limit,
+} from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+import { useRouter } from 'expo-router';
 
-interface MemberRow {
-  name: string;
-  age: string;
-  fatherOrHusband: string;
-  relation: string;
-  remarks: string;
-}
-
-// Helper to safely convert local file:// or web blob: URI into a Blob
-const uriToBlob = (uri: string): Promise<Blob> => {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.onload = function () {
-      resolve(xhr.response);
-    };
-    xhr.onerror = function () {
-      reject(new Error('Failed to convert image to blob'));
-    };
-    xhr.responseType = 'blob';
-    xhr.open('GET', uri, true);
-    xhr.send(null);
-  });
+// ---------- Popup helpers ----------
+const confirmAction = (
+  title: string,
+  message: string,
+  confirmText: string,
+  onConfirm: () => void,
+  onCancel?: () => void
+) => {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`${title}\n\n${message}`)) onConfirm();
+    else onCancel?.();
+  } else {
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: 'रद्द गर्नुहोस्', style: 'cancel', onPress: onCancel },
+        { text: confirmText, style: 'destructive', onPress: onConfirm },
+      ],
+      { cancelable: true, onDismiss: onCancel }
+    );
+  }
 };
 
-export default function RegisterFormScreen() {
-  const [date, setDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
+// ---------- Input helpers ----------
+const MAX_MEMBERS = 30;
+const blankMember = () => ({ name: '', age: '', fatherOrHusband: '', relation: '', remarks: '' });
 
+const toAsciiDigits = (t: string) =>
+  t.replace(/[\u0966-\u096F]/g, (d) => String(d.charCodeAt(0) - 0x0966));
+const onlyDigits = (t: string, max: number) => toAsciiDigits(t).replace(/\D/g, '').slice(0, max);
+
+const cleanName = (t: string) => t.replace(/[^A-Za-z\u0900-\u0965\u0970-\u097F\s.]/g, '');
+const isName = (t: string) =>
+  /^[A-Za-z\u0900-\u0965\u0970-\u097F][A-Za-z\u0900-\u0965\u0970-\u097F\s.]*$/.test(t);
+
+const cleanAddress = (t: string) => t.replace(/[^A-Za-z0-9\u0900-\u097F\s,.\-\/]/g, '');
+const isAddress = (t: string) => /[A-Za-z\u0900-\u0965\u0970-\u097F]/.test(t);
+
+const isNepaliMobile = (t: string) => /^9[678]\d{8}$/.test(t);
+const inRange = (t: string, min: number, max: number) =>
+  /^\d+$/.test(t) && Number(t) >= min && Number(t) <= max;
+
+export default function RegistrationScreen() {
+  const router = useRouter();
   const [muliName, setMuliName] = useState('');
-  const [muliAge, setMuliAge] = useState('');
   const [address, setAddress] = useState('');
   const [tol, setTol] = useState('');
   const [fatherOrHusband, setFatherOrHusband] = useState('');
   const [grandfatherOrFatherInLaw, setGrandfatherOrFatherInLaw] = useState('');
+  const [muliAge, setMuliAge] = useState('');
+  const [memberCount, setMemberCount] = useState('1');
   const [contactNo, setContactNo] = useState('');
 
+  // Photos (stored as compressed JPEG base64 Data URLs)
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [memberCount, setMemberCount] = useState<number>(3);
-  const [members, setMembers] = useState<MemberRow[]>(
-    Array.from({ length: 20 }, () => ({
-      name: '',
-      age: '',
-      fatherOrHusband: '',
-      relation: '',
-      remarks: '',
-    }))
-  );
+  const [citizenshipFrontUri, setCitizenshipFrontUri] = useState<string | null>(null);
+  const [citizenshipBackUri, setCitizenshipBackUri] = useState<string | null>(null);
 
-  const [collectorName, setCollectorName] = useState('');
-  const [collectorPost, setCollectorPost] = useState('');
-  const [submitterName, setSubmitterName] = useState('');
+  // Members dynamic rows
+  const [members, setMembers] = useState<any[]>([blankMember()]);
   const [submitting, setSubmitting] = useState(false);
 
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      setDate(selectedDate);
+  const [familyNo, setFamilyNo] = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(true);
+
+  // ---------- Snackbar ----------
+  type SnackType = 'error' | 'success' | 'warning';
+  const [snack, setSnack] = useState<{ title: string; message: string; type: SnackType } | null>(null);
+  const slide = useRef(new Animated.Value(0)).current;
+  const snackTimer = useRef<any>(null);
+  const snackDone = useRef<(() => void) | undefined>(undefined);
+
+  const hideSnack = () => {
+    clearTimeout(snackTimer.current);
+    Animated.timing(slide, { toValue: 0, duration: 180, useNativeDriver: Platform.OS !== 'web' }).start(
+      ({ finished }) => {
+        if (!finished) return;
+        setSnack(null);
+        const cb = snackDone.current;
+        snackDone.current = undefined;
+        cb?.();
+      }
+    );
+  };
+
+  const notify = (title: string, message: string, onOk?: () => void) => {
+    const type: SnackType = title === 'सफलता' ? 'success' : title === 'अपूर्ण विवरण' ? 'warning' : 'error';
+    clearTimeout(snackTimer.current);
+    snackDone.current = onOk;
+    setSnack({ title, message, type });
+    slide.setValue(0);
+    Animated.timing(slide, { toValue: 1, duration: 220, useNativeDriver: Platform.OS !== 'web' }).start();
+    const ms = type === 'success' ? 2500 : Math.min(15000, 4000 + message.length * 50);
+    snackTimer.current = setTimeout(hideSnack, ms);
+  };
+
+  useEffect(() => () => clearTimeout(snackTimer.current), []);
+
+  // Fill form from saved registration (data URLs display directly in <Image> without manual decompression)
+  const fillForm = (d: any, no: string) => {
+    setMuliName(d.muliName ?? '');
+    setAddress(d.address ?? '');
+    setTol(d.tol ?? '');
+    setFatherOrHusband(d.fatherOrHusband ?? '');
+    setGrandfatherOrFatherInLaw(d.grandfatherOrFatherInLaw ?? '');
+    setMuliAge(d.muliAge ?? '');
+    setContactNo(d.contactNo ?? '');
+    setPhotoUri(d.photoUrl ?? null);
+    setCitizenshipFrontUri(d.citizenshipFrontUrl ?? null);
+    setCitizenshipBackUri(d.citizenshipBackUrl ?? null);
+    const loaded =
+      Array.isArray(d.members) && d.members.length
+        ? d.members.map((m: any) => ({ ...blankMember(), ...m }))
+        : [blankMember()];
+    setMembers(loaded);
+    setMemberCount(String(loaded.length));
+    setFamilyNo(no);
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setInitializing(false);
+        return;
+      }
+      try {
+        const q = query(collection(db, 'registrations'), where('userId', '==', user.uid), limit(1));
+        const res = await getDocs(q);
+        if (!res.empty) {
+          const found = res.docs[0];
+          fillForm(found.data(), found.id);
+        }
+      } catch (e: any) {
+        notify('त्रुटि', e.message);
+      } finally {
+        setInitializing(false);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Auto-compress image to lightweight JPEG Data URL
+  const compressImage = async (uri: string, maxWidth: number): Promise<string> => {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: maxWidth } }],
+      {
+        compress: 0.6,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+    if (manipulated.base64) {
+      return `data:image/jpeg;base64,${manipulated.base64}`;
+    }
+    // Fallback if base64 wasn't returned on a specific platform
+    const response = await fetch(manipulated.uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const pickImage = async (type: 'profile' | 'front' | 'back') => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      try {
+        const maxWidth = type === 'profile' ? 400 : 900;
+        const compressedDataUrl = await compressImage(result.assets[0].uri, maxWidth);
+        if (type === 'profile') setPhotoUri(compressedDataUrl);
+        if (type === 'front') setCitizenshipFrontUri(compressedDataUrl);
+        if (type === 'back') setCitizenshipBackUri(compressedDataUrl);
+      } catch (e: any) {
+        notify('त्रुटि', 'तस्वीर कम्प्रेस गर्न सकिएन: ' + (e?.message || ''));
+      }
     }
   };
 
-  const handlePickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const ensureCompressedBase64 = async (uri: string, maxWidth: number): Promise<string> => {
+    if (uri.startsWith('data:')) return uri;
+    return compressImage(uri, maxWidth);
+  };
 
-    if (!permissionResult.granted) {
-      Alert.alert('अनुमति आवश्यक', 'फोटो छान्न ग्यालरी पहुँच अनुमति आवश्यक छ।');
+  const handleMemberChange = (text: string, index: number, field: string) => {
+    let value = text;
+    if (field === 'age') value = onlyDigits(text, 3);
+    else if (field !== 'remarks') value = cleanName(text);
+    setMembers((prev) => prev.map((m, i) => (i === index ? { ...m, [field]: value } : m)));
+  };
+
+  const addMemberRow = () => {
+    if (members.length >= MAX_MEMBERS) {
+      notify('सीमा नाघ्यो', `अधिकतम ${MAX_MEMBERS} सदस्य मात्र थप्न सकिन्छ।`);
+      return;
+    }
+    setMembers([...members, blankMember()]);
+    setMemberCount(String(members.length + 1));
+  };
+
+  const removeMemberRow = (index: number) => {
+    const updated = members.filter((_, i) => i !== index);
+    setMembers(updated);
+    setMemberCount(String(updated.length));
+  };
+
+  const applyMemberCount = () => {
+    const n = parseInt(memberCount, 10);
+    if (!n || n < 1) {
+      setMemberCount(String(members.length));
+      return;
+    }
+    if (n > MAX_MEMBERS) {
+      notify('सीमा नाघ्यो', `अधिकतम ${MAX_MEMBERS} सदस्य मात्र थप्न सकिन्छ।`);
+    }
+    const target = Math.min(n, MAX_MEMBERS);
+
+    if (target === members.length) {
+      setMemberCount(String(target));
+      return;
+    }
+    if (target > members.length) {
+      const extra = Array.from({ length: target - members.length }, () => blankMember());
+      setMembers([...members, ...extra]);
+      setMemberCount(String(target));
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      setPhotoUri(result.assets[0].uri);
+    const hasData = members
+      .slice(target)
+      .some((m) => Object.values(m).some((v) => String(v).trim() !== ''));
+    const shrink = () => {
+      setMembers(members.slice(0, target));
+      setMemberCount(String(target));
+    };
+    if (!hasData) {
+      shrink();
+      return;
     }
+    confirmAction(
+      'सदस्य हटाउने?',
+      `सदस्य ${target + 1} देखि ${members.length} सम्मको विवरण मेटिनेछ।`,
+      'मेटाउनुहोस्',
+      shrink,
+      () => setMemberCount(String(members.length))
+    );
   };
 
-  const handleMemberChange = (index: number, field: keyof MemberRow, value: string) => {
-    const updated = [...members];
-    updated[index][field] = value;
-    setMembers(updated);
+  const validate = () => {
+    const missing: string[] = [];
+    const invalid: string[] = [];
+
+    const filled = (v: string, label: string) => {
+      if (!v.trim()) {
+        missing.push(label);
+        return false;
+      }
+      return true;
+    };
+
+    if (filled(muliName, 'परिवारमुलीको नाम थर') && !isName(muliName.trim()))
+      invalid.push('परिवारमुलीको नाम थर (अक्षर मात्र)');
+    if (filled(address, 'स्थायी ठेगाना') && !isAddress(address.trim()))
+      invalid.push('स्थायी ठेगाना (अक्षर समावेश हुनुपर्छ)');
+    if (filled(tol, 'टोल') && !isName(tol.trim())) invalid.push('टोल (अक्षर मात्र)');
+    if (filled(fatherOrHusband, 'बाबु/पतिको नाम') && !isName(fatherOrHusband.trim()))
+      invalid.push('बाबु/पतिको नाम (अक्षर मात्र)');
+    if (filled(grandfatherOrFatherInLaw, 'बाजे/ससुराको नाम') && !isName(grandfatherOrFatherInLaw.trim()))
+      invalid.push('बाजे/ससुराको नाम (अक्षर मात्र)');
+    if (filled(muliAge, 'उमेर') && !inRange(muliAge.trim(), 1, 120))
+      invalid.push('उमेर (1 देखि 120 बीचको अङ्क)');
+    if (filled(memberCount, 'परिवार सदस्य संख्या')) {
+      if (!inRange(memberCount.trim(), 1, MAX_MEMBERS)) {
+        invalid.push(`परिवार सदस्य संख्या (1 देखि ${MAX_MEMBERS} बीच)`);
+      } else if (Number(memberCount) !== members.length) {
+        invalid.push(`सदस्य संख्या (${memberCount}) र तलका सदस्य विवरण (${members.length}) मिलेन`);
+      }
+    }
+    if (filled(contactNo, 'सम्पर्क नम्बर') && !isNepaliMobile(contactNo.trim()))
+      invalid.push('सम्पर्क नम्बर (98/97/96 बाट सुरु हुने 10 अङ्कको नेपाली मोबाइल नम्बर)');
+
+    if (!photoUri) missing.push('मुलीको तस्वीर');
+    if (!citizenshipFrontUri) missing.push('नागरिकता (अगाडि)');
+    if (!citizenshipBackUri) missing.push('नागरिकता (पछाडि)');
+
+    members.forEach((m, i) => {
+      const p = `सदस्य ${i + 1}: `;
+      if (filled(m.name, p + 'नाम थर') && !isName(m.name.trim())) invalid.push(p + 'नाम (अक्षर मात्र)');
+      if (filled(m.age, p + 'उमेर') && !inRange(m.age.trim(), 0, 120)) invalid.push(p + 'उमेर (0 देखि 120)');
+      if (filled(m.fatherOrHusband, p + 'बाबु/पति') && !isName(m.fatherOrHusband.trim()))
+        invalid.push(p + 'बाबु/पति (अक्षर मात्र)');
+      if (filled(m.relation, p + 'नाता') && !isName(m.relation.trim())) invalid.push(p + 'नाता (अक्षर मात्र)');
+      filled(m.remarks, p + 'कैफियत');
+    });
+
+    return { missing, invalid };
   };
 
   const handleSubmit = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      Alert.alert('त्रुटि', 'कृपया पहिले लगइन गर्नुहोस्।');
+      notify('त्रुटि', 'कृपया पहिले लगइन गर्नुहोस्।');
       return;
     }
 
-    if (!muliName.trim() || !address.trim() || !contactNo.trim()) {
-      Alert.alert('अपूर्ण विवरण', 'कृपया परिवारमुलीको नाम, ठेगाना र सम्पर्क नं प्रविष्ट गर्नुहोस्।');
+    const { missing, invalid } = validate();
+    if (missing.length) {
+      notify('अपूर्ण विवरण', 'कृपया निम्न विवरण भर्नुहोस्:\n\n' + missing.map((m) => '• ' + m).join('\n'));
       return;
     }
-
-    if (!photoUri) {
-      Alert.alert('फोटो अनिवार्य', 'सदस्यता कायम गर्न कृपया फोटो अपलोड गर्नुहोस्।');
+    if (invalid.length) {
+      notify('अमान्य विवरण', 'कृपया यी विवरण सच्याउनुहोस्:\n\n' + invalid.map((m) => '• ' + m).join('\n'));
       return;
     }
 
     setSubmitting(true);
-
     try {
-      // 1. Convert image URI to Blob and upload to Firebase Storage
-      const blob = await uriToBlob(photoUri);
-      const storageRef = ref(storage, `registrations/${currentUser.uid}/profile_${Date.now()}.jpg`);
-      await uploadBytes(storageRef, blob);
-      const uploadedPhotoUrl = await getDownloadURL(storageRef);
+      const photoBase64 = await ensureCompressedBase64(photoUri as string, 400);
+      const frontBase64 = await ensureCompressedBase64(citizenshipFrontUri as string, 900);
+      const backBase64 = await ensureCompressedBase64(citizenshipBackUri as string, 900);
 
-      // 2. Filter only the active number of family members
-      const activeMembers = members.slice(0, memberCount).map((m, i) => ({
-        sn: i + 1,
-        name: m.name.trim(),
-        age: m.age.trim(),
-        fatherOrHusband: m.fatherOrHusband.trim(),
-        relation: m.relation.trim(),
-        remarks: m.remarks.trim(),
-      }));
-
-      // 3. Save document to Firestore under user's UID
-      await setDoc(doc(db, 'registrations', currentUser.uid), {
-        userId: currentUser.uid,
-        registrationDate: date.toISOString().split('T')[0],
-        photoUrl: uploadedPhotoUrl,
+      const data = {
         muliName: muliName.trim(),
-        muliAge: muliAge.trim(),
         address: address.trim(),
         tol: tol.trim(),
         fatherOrHusband: fatherOrHusband.trim(),
         grandfatherOrFatherInLaw: grandfatherOrFatherInLaw.trim(),
+        muliAge: muliAge.trim(),
+        memberCount: String(members.length),
         contactNo: contactNo.trim(),
-        memberCount,
-        members: activeMembers,
-        submitterName: submitterName.trim(),
-        collectorName: collectorName.trim(),
-        collectorPost: collectorPost.trim(),
-        status: 'submitted',
+        photoUrl: photoBase64,
+        citizenshipFrontUrl: frontBase64,
+        citizenshipBackUrl: backBase64,
+        members: members.map((m) => ({
+          name: m.name.trim(),
+          age: m.age.trim(),
+          fatherOrHusband: m.fatherOrHusband.trim(),
+          relation: m.relation.trim(),
+          remarks: m.remarks.trim(),
+        })),
+        status: 'pending',
         updatedAt: serverTimestamp(),
-      });
+      };
 
-      Alert.alert('सफलता', 'तपाईंको पारिवारिक लगत फारम सुरक्षित रूपमा क्लाउडमा दर्ता भयो।');
-    } catch (error: any) {
-      console.error('Registration Error:', error);
-      Alert.alert('दर्ता असफल', error.message || 'डाटा पठाउन समस्या भयो।');
+      if (familyNo) {
+        await updateDoc(doc(db, 'registrations', familyNo), data);
+        notify('सफलता', `परिवार नम्बर ${familyNo} को फारम अद्यावधिक गरियो।`, () => router.back());
+      } else {
+        const counterRef = doc(db, 'counters', 'registrations');
+        const newNo = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(counterRef);
+          const next = (snap.exists() ? (snap.data().last as number) : 0) + 1;
+          const no = `GT-${String(next).padStart(4, '0')}`;
+          tx.set(counterRef, { last: next });
+          tx.set(doc(db, 'registrations', no), {
+            ...data,
+            familyNo: no,
+            userId: currentUser.uid,
+            email: currentUser.email || 'N/A',
+            createdAt: serverTimestamp(),
+          });
+          return no;
+        });
+        setFamilyNo(newNo);
+        notify(
+          'सफलता',
+          `तपाईंको पारिवारिक लगत फारम प्रशासकलाई पठाइयो।\n\nतपाईंको परिवार नम्बर: ${newNo}`,
+          () => router.back()
+        );
+      }
+    } catch (e: any) {
+      notify('त्रुटि', e.message);
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (initializing) {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#881337" />
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.formContainer}>
-        {/* Header Block */}
-        <View style={styles.headerBlock}>
-          <Text style={styles.headerTitle}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
-          <Text style={styles.headerSub}>मण्डनदेउपुर नगरपालिका ३, काभ्रेपलाञ्चोक</Text>
-          <View style={styles.badgeTag}>
-            <Text style={styles.badgeTagText}>आधिकारिक पारिवारिक लगत फारम</Text>
+    <SafeAreaView style={styles.container}>
+      {snack && (
+        <Animated.View
+          style={[
+            styles.snack,
+            snack.type === 'success' ? styles.snackOk : snack.type === 'warning' ? styles.snackWarn : styles.snackErr,
+            { opacity: slide, transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] }) }] },
+          ]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.snackTitle}>{snack.title}</Text>
+            <ScrollView style={{ maxHeight: 220 }}>
+              <Text style={styles.snackMsg}>{snack.message}</Text>
+            </ScrollView>
           </View>
-        </View>
+          <TouchableOpacity onPress={hideSnack} hitSlop={10} style={{ paddingLeft: 10 }}>
+            <Text style={styles.snackClose}>✕</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.pageTitle}>पारिवारिक लगत दर्ता फारम</Text>
 
-        {/* Top Info Grid (Date Selector + Photo Card) */}
-        <View style={styles.topSectionGrid}>
-          <View style={styles.dateCard}>
-            <Text style={styles.inputLabel}>दर्ता मिति (Date)</Text>
-            {Platform.OS === 'web' ? (
-              <View style={styles.datePickerButton}>
-                <Ionicons name="calendar-outline" size={18} color="#881337" style={{ marginRight: 8 }} />
-                <TextInput
-                  style={styles.dateButtonText}
-                  value={date.toISOString().split('T')[0]}
-                  onChangeText={(text) => {
-                    const parsed = new Date(text);
-                    if (!isNaN(parsed.getTime())) setDate(parsed);
-                  }}
-                  placeholder="YYYY-MM-DD"
-                />
-              </View>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.datePickerButton}
-                  onPress={() => setShowDatePicker(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="calendar-outline" size={18} color="#881337" style={{ marginRight: 8 }} />
-                  <Text style={styles.dateButtonText}>{date.toLocaleDateString('en-CA')}</Text>
-                </TouchableOpacity>
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={date}
-                    mode="date"
-                    display="default"
-                    onChange={onDateChange}
-                  />
-                )}
-              </>
-            )}
-            <Text style={styles.dateSubText}>फारम पेस गरिने मिति स्वतः चयन हुन्छ</Text>
+        {familyNo && (
+          <View style={styles.editBanner}>
+            <Text style={styles.editBannerText}>सम्पादन मोड — परिवार नम्बर: {familyNo}</Text>
           </View>
+        )}
 
-          <TouchableOpacity style={styles.photoUploadCard} onPress={handlePickImage} activeOpacity={0.85}>
-            {photoUri ? (
-              <View style={styles.photoPreviewWrapper}>
-                <Image source={{ uri: photoUri }} style={styles.uploadedPhoto} />
-                <View style={styles.photoChangeBar}>
-                  <Text style={styles.photoChangeText}>फोटो फेर्नुहोस्</Text>
+        {/* Muli Details Card */}
+        <View style={styles.card}>
+          <View style={styles.topRow}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={styles.label}>परिवारमुलीको नाम थर:</Text>
+              <TextInput style={styles.input} placeholder="नाम थर" value={muliName} onChangeText={(t) => setMuliName(cleanName(t))} />
+
+              <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                <View style={{ flex: 2, marginRight: 8 }}>
+                  <Text style={styles.label}>स्थायी ठेगाना:</Text>
+                  <TextInput style={styles.input} placeholder="ठेगाना" value={address} onChangeText={(t) => setAddress(cleanAddress(t))} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>टोल:</Text>
+                  <TextInput style={styles.input} placeholder="टोल" value={tol} onChangeText={(t) => setTol(cleanName(t))} />
                 </View>
               </View>
-            ) : (
-              <View style={styles.photoPlaceholderBox}>
-                <Ionicons name="camera-outline" size={22} color="#64748B" style={{ marginBottom: 4 }} />
-                <Text style={styles.photoText}>सदस्यता कायमका लागि फोटो अनिवार्य</Text>
-                <Text style={styles.photoBtnText}>फोटो अपलोड</Text>
+
+              <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.label}>बाबु/पतिको नाम:</Text>
+                  <TextInput style={styles.input} placeholder="नाम" value={fatherOrHusband} onChangeText={(t) => setFatherOrHusband(cleanName(t))} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>बाजे/ससुराको नाम:</Text>
+                  <TextInput style={styles.input} placeholder="नाम" value={grandfatherOrFatherInLaw} onChangeText={(t) => setGrandfatherOrFatherInLaw(cleanName(t))} />
+                </View>
               </View>
-            )}
-          </TouchableOpacity>
-        </View>
+            </View>
 
-        {/* Section 1: Main Details */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>१. गुठी सदस्यको पारिवारिक विवरण</Text>
-        </View>
-
-        <View style={styles.inputGrid}>
-          <View style={[styles.fieldGroup, { flex: 2, minWidth: 200 }]}>
-            <Text style={styles.inputLabel}>परिवारमुलीको नाम</Text>
-            <TextInput style={styles.textInput} value={muliName} onChangeText={setMuliName} placeholder="पूरा नाम" placeholderTextColor="#A8A29E" />
-          </View>
-
-          <View style={[styles.fieldGroup, { width: 100 }]}>
-            <Text style={styles.inputLabel}>उमेर (वर्ष)</Text>
-            <TextInput style={styles.textInput} keyboardType="numeric" value={muliAge} onChangeText={setMuliAge} placeholder="उमेर" placeholderTextColor="#A8A29E" />
-          </View>
-        </View>
-
-        <View style={styles.inputGrid}>
-          <View style={[styles.fieldGroup, { flex: 2, minWidth: 200 }]}>
-            <Text style={styles.inputLabel}>हालको स्थायी ठेगाना</Text>
-            <TextInput style={styles.textInput} value={address} onChangeText={setAddress} placeholder="जिल्ला, पालिका, वडा नं." placeholderTextColor="#A8A29E" />
-          </View>
-
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 120 }]}>
-            <Text style={styles.inputLabel}>टोल</Text>
-            <TextInput style={styles.textInput} value={tol} onChangeText={setTol} placeholder="टोलको नाम" placeholderTextColor="#A8A29E" />
-          </View>
-        </View>
-
-        <View style={styles.inputGrid}>
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 180 }]}>
-            <Text style={styles.inputLabel}>बाबु / पतिको नाम</Text>
-            <TextInput style={styles.textInput} value={fatherOrHusband} onChangeText={setFatherOrHusband} placeholder="बाबु वा पतिको नाम" placeholderTextColor="#A8A29E" />
-          </View>
-
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 180 }]}>
-            <Text style={styles.inputLabel}>बाजे / ससुराको नाम</Text>
-            <TextInput style={styles.textInput} value={grandfatherOrFatherInLaw} onChangeText={setGrandfatherOrFatherInLaw} placeholder="बाजे वा ससुराको नाम" placeholderTextColor="#A8A29E" />
-          </View>
-        </View>
-
-        {/* Section 2: Member Selector */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>२. परिवार सदस्य विवरण (मुलीसमेत)</Text>
-        </View>
-
-        <View style={styles.memberPickerContainer}>
-          <View style={styles.memberPickerHeader}>
-            <Text style={styles.inputLabel}>परिवार सदस्य संख्या छनोट गर्नुहोस्:</Text>
-            <Text style={styles.memberCountBadge}>{memberCount} जना</Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-            {Array.from({ length: 18 }, (_, i) => i + 3).map((num) => (
-              <TouchableOpacity
-                key={num}
-                style={[styles.chipButton, memberCount === num && styles.chipButtonActive]}
-                onPress={() => setMemberCount(num)}
-              >
-                <Text style={[styles.chipText, memberCount === num && styles.chipTextActive]}>
-                  {num} जना
-                </Text>
+            {/* Profile Picture */}
+            <View style={styles.photoContainer}>
+              <Text style={styles.photoLabel}>मुलीको तस्वीर</Text>
+              <TouchableOpacity style={styles.imageBox} onPress={() => pickImage('profile')}>
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.imagePlaceholderText}>+ फोटो</Text>
+                )}
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            </View>
+          </View>
 
-          <View style={[styles.fieldGroup, { marginTop: 12 }]}>
-            <Text style={styles.inputLabel}>सम्पर्क नम्बर</Text>
-            <TextInput style={styles.textInput} keyboardType="phone-pad" value={contactNo} onChangeText={setContactNo} placeholder="९८XXXXXXXX" placeholderTextColor="#A8A29E" />
+          <View style={{ flexDirection: 'row', marginTop: 8 }}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.label}>उमेर:</Text>
+              <TextInput style={styles.input} placeholder="उमेर" keyboardType="numeric" maxLength={3} value={muliAge} onChangeText={(t) => setMuliAge(onlyDigits(t, 3))} />
+            </View>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.label}>परिवार सदस्य संख्या:</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="संख्या"
+                keyboardType="numeric"
+                maxLength={2}
+                value={memberCount}
+                onChangeText={(t) => setMemberCount(onlyDigits(t, 2))}
+                onEndEditing={applyMemberCount}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>सम्पर्क नम्बर:</Text>
+              <TextInput style={styles.input} placeholder="मोबाइल नं" keyboardType="phone-pad" maxLength={10} value={contactNo} onChangeText={(t) => setContactNo(onlyDigits(t, 10))} />
+            </View>
+          </View>
+
+          {/* Citizenship Verification Uploads */}
+          <Text style={[styles.label, { marginTop: 14, color: '#881337' }]}>नागरिकता प्रमाण पत्र (अगाडि र पछाडि):</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+            <TouchableOpacity style={styles.citizenshipBox} onPress={() => pickImage('front')}>
+              <Text style={styles.citLabel}>नागरिकता (अगाडि - Front)</Text>
+              {citizenshipFrontUri ? (
+                <Image source={{ uri: citizenshipFrontUri }} style={styles.previewImage} resizeMode="contain" />
+              ) : (
+                <Text style={styles.imagePlaceholderText}>+ अपलोड अगाडि भाग</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.citizenshipBox} onPress={() => pickImage('back')}>
+              <Text style={styles.citLabel}>नागरिकता (पछाडि - Back)</Text>
+              {citizenshipBackUri ? (
+                <Image source={{ uri: citizenshipBackUri }} style={styles.previewImage} resizeMode="contain" />
+              ) : (
+                <Text style={styles.imagePlaceholderText}>+ अपलोड पछाडि भाग</Text>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Section 3: Members Table */}
-        <View style={styles.tableWrapper}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.th, { width: 40 }]}>क्र.सं.</Text>
-            <Text style={[styles.th, { flex: 2 }]}>नाम, थर</Text>
-            <Text style={[styles.th, { width: 55 }]}>उमेर</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>बाबु/पति</Text>
-            <Text style={[styles.th, { flex: 1.5 }]}>नाता</Text>
-            <Text style={[styles.th, { flex: 1 }]}>कैफियत</Text>
-          </View>
-
-          {Array.from({ length: memberCount }).map((_, idx) => (
-            <View key={idx} style={[styles.tableRow, idx % 2 === 1 && styles.tableRowAlt]}>
-              <Text style={[styles.tdIndex, { width: 40 }]}>{idx + 1}</Text>
-              <View style={[styles.td, { flex: 2 }]}>
-                <TextInput style={styles.tableInput} placeholder="नाम थर" placeholderTextColor="#A8A29E" value={members[idx].name} onChangeText={(val) => handleMemberChange(idx, 'name', val)} />
+        {/* Members Table Card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>परिवारका सदस्यहरूको विवरण</Text>
+          {members.map((m, index) => (
+            <View key={index} style={styles.memberRowCard}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#881337', marginBottom: 4 }}>सदस्य क्र.सं. {index + 1}</Text>
+              <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                <TextInput style={[styles.input, { flex: 2, marginRight: 6 }]} placeholder="नाम थर" value={m.name} onChangeText={(t) => handleMemberChange(t, index, 'name')} />
+                <TextInput style={[styles.input, { flex: 1, marginRight: 6 }]} placeholder="उमेर" keyboardType="numeric" maxLength={3} value={m.age} onChangeText={(t) => handleMemberChange(t, index, 'age')} />
+                <TextInput style={[styles.input, { flex: 2 }]} placeholder="बाबु/पति" value={m.fatherOrHusband} onChangeText={(t) => handleMemberChange(t, index, 'fatherOrHusband')} />
               </View>
-              <View style={[styles.td, { width: 55 }]}>
-                <TextInput style={[styles.tableInput, { textAlign: 'center' }]} keyboardType="numeric" placeholder="उमेर" placeholderTextColor="#A8A29E" value={members[idx].age} onChangeText={(val) => handleMemberChange(idx, 'age', val)} />
-              </View>
-              <View style={[styles.td, { flex: 1.5 }]}>
-                <TextInput style={styles.tableInput} placeholder="बाबु/पति" placeholderTextColor="#A8A29E" value={members[idx].fatherOrHusband} onChangeText={(val) => handleMemberChange(idx, 'fatherOrHusband', val)} />
-              </View>
-              <View style={[styles.td, { flex: 1.5 }]}>
-                <TextInput style={styles.tableInput} placeholder="नाता" placeholderTextColor="#A8A29E" value={members[idx].relation} onChangeText={(val) => handleMemberChange(idx, 'relation', val)} />
-              </View>
-              <View style={[styles.td, { flex: 1 }]}>
-                <TextInput style={styles.tableInput} placeholder="कैफियत" placeholderTextColor="#A8A29E" value={members[idx].remarks} onChangeText={(val) => handleMemberChange(idx, 'remarks', val)} />
+              <View style={{ flexDirection: 'row' }}>
+                <TextInput style={[styles.input, { flex: 1.5, marginRight: 6 }]} placeholder="नाता" value={m.relation} onChangeText={(t) => handleMemberChange(t, index, 'relation')} />
+                <TextInput style={[styles.input, { flex: 2, marginRight: 6 }]} placeholder="कैफियत (छैन भने -)" value={m.remarks} onChangeText={(t) => handleMemberChange(t, index, 'remarks')} />
+                {members.length > 1 && (
+                  <TouchableOpacity style={styles.removeBtn} onPress={() => removeMemberRow(index)}>
+                    <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>मेटाउनु</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))}
+
+          <TouchableOpacity style={styles.addRowBtn} onPress={addMemberRow}>
+            <Text style={{ color: '#881337', fontWeight: '800', fontSize: 12 }}>+ थप सदस्य जोड्नुहोस्</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Section 4: Signature / Verification Details */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>३. विवरण पेश तथा संकलनकर्ता</Text>
-        </View>
-
-        <View style={styles.inputGrid}>
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 200 }]}>
-            <Text style={styles.inputLabel}>विवरण पेश गर्नेको नाम थर</Text>
-            <TextInput style={styles.textInput} value={submitterName} onChangeText={setSubmitterName} placeholder="पेश गर्नेको नाम" placeholderTextColor="#A8A29E" />
-          </View>
-
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 200 }]}>
-            <Text style={styles.inputLabel}>विवरण संकलन गर्नेको नाम थर</Text>
-            <TextInput style={styles.textInput} value={collectorName} onChangeText={setCollectorName} placeholder="संकलनकर्ताको नाम" placeholderTextColor="#A8A29E" />
-          </View>
-        </View>
-
-        <View style={styles.inputGrid}>
-          <View style={[styles.fieldGroup, { flex: 1, minWidth: 200 }]}>
-            <Text style={styles.inputLabel}>संकलनकर्ताको पद</Text>
-            <TextInput style={styles.textInput} value={collectorPost} onChangeText={setCollectorPost} placeholder="पद (उदा. सचिव/सदस्य)" placeholderTextColor="#A8A29E" />
-          </View>
-        </View>
-
-        {/* Submit Action */}
-        <TouchableOpacity
-          style={[styles.submitBtn, submitting && { opacity: 0.7 }]}
-          onPress={handleSubmit}
-          disabled={submitting}
-          activeOpacity={0.9}
-        >
+        <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.7 }]} onPress={handleSubmit} disabled={submitting}>
           <Text style={styles.submitBtnText}>
-            {submitting ? 'दर्ता हुँदैछ...' : 'पारिवारिक विवरण दर्ता गर्नुहोस्'}
+            {submitting ? 'पेश गर्दै...' : familyNo ? 'फारम अद्यावधिक गर्नुहोस्' : 'फारम पेस गर्नुहोस्'}
           </Text>
         </TouchableOpacity>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#EFEFEF' },
-  content: { paddingVertical: 20, paddingHorizontal: 12, alignItems: 'center' },
-  formContainer: {
-    width: '100%',
-    maxWidth: 820,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 4,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  headerBlock: {
-    backgroundColor: '#881337',
-    padding: 20,
-    borderRadius: 3,
-    borderBottomWidth: 3,
-    borderBottomColor: '#D97706',
-    marginBottom: 20,
-  },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
-  headerSub: { fontSize: 13, color: '#FEE2E2', fontWeight: '600', marginBottom: 10 },
-  badgeTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#D97706',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 2,
-  },
-  badgeTagText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
-  topSectionGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
-    gap: 16,
-    flexWrap: 'wrap',
-  },
-  dateCard: { flex: 1, minWidth: 220 },
-  datePickerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FAFAF9',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  dateButtonText: { fontSize: 14, fontWeight: '700', color: '#0F172A', flex: 1 },
-  dateSubText: { fontSize: 10.5, color: '#64748B', marginTop: 4 },
-  photoUploadCard: {
-    width: 140,
-    height: 120,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 3,
-    backgroundColor: '#F8FAFC',
-    overflow: 'hidden',
-  },
-  photoPlaceholderBox: { padding: 8, alignItems: 'center', justifyContent: 'center', flex: 1 },
-  photoText: { fontSize: 9.5, textAlign: 'center', color: '#64748B', fontWeight: '600', marginBottom: 4 },
-  photoBtnText: { fontSize: 11, fontWeight: '700', color: '#881337' },
-  photoPreviewWrapper: { width: '100%', height: '100%', position: 'relative' },
-  uploadedPhoto: { width: '100%', height: '100%', resizeMode: 'cover' },
-  photoChangeBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    paddingVertical: 3,
-    alignItems: 'center',
-  },
-  photoChangeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
-  sectionHeader: {
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#881337',
-    borderTopWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 14,
-    marginTop: 6,
-  },
-  sectionTitle: { fontSize: 13.5, fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' },
-  inputGrid: { flexDirection: 'row', gap: 12, marginBottom: 12, flexWrap: 'wrap' },
-  fieldGroup: { flex: 1 },
-  inputLabel: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  textInput: {
-    backgroundColor: '#FAFAF9',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    fontSize: 13.5,
-    color: '#0F172A',
-  },
-  memberPickerContainer: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 3,
-    padding: 14,
-    marginBottom: 16,
-  },
-  memberPickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  memberCountBadge: { fontSize: 13, fontWeight: '800', color: '#881337' },
-  chipScroll: { paddingVertical: 4 },
-  chipButton: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 6,
-    backgroundColor: '#FFFFFF',
-  },
-  chipButtonActive: { backgroundColor: '#881337', borderColor: '#881337' },
-  chipText: { fontSize: 12, fontWeight: '700', color: '#334155' },
-  chipTextActive: { color: '#FFFFFF' },
-  tableWrapper: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderBottomWidth: 1,
-    borderBottomColor: '#CBD5E1',
-    paddingVertical: 8,
-  },
-  th: { fontSize: 11.5, fontWeight: '800', color: '#334155', textAlign: 'center', paddingHorizontal: 4 },
-  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', alignItems: 'center', backgroundColor: '#FFFFFF' },
-  tableRowAlt: { backgroundColor: '#F8FAFC' },
-  tdIndex: { fontSize: 12, fontWeight: '700', color: '#475569', textAlign: 'center' },
-  td: { padding: 4 },
-  tableInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 12.5,
-    color: '#0F172A',
-  },
-  submitBtn: {
-    backgroundColor: '#881337',
-    paddingVertical: 14,
-    borderRadius: 3,
-    alignItems: 'center',
-    marginTop: 10,
-  },
+  container: { flex: 1, backgroundColor: '#F3F4F6' },
+  scroll: { padding: 14, paddingBottom: 40 },
+  pageTitle: { fontSize: 16, fontWeight: '800', color: '#881337', marginBottom: 12 },
+  card: { backgroundColor: '#FFFFFF', padding: 14, borderRadius: 6, marginBottom: 12, borderWidth: 1, borderColor: '#CBD5E1' },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  label: { fontSize: 11, fontWeight: '700', color: '#374151', marginTop: 6, marginBottom: 3 },
+  input: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 7, fontSize: 12, backgroundColor: '#F9FAFB', color: '#111827' },
+  photoContainer: { width: 120, alignItems: 'center' },
+  photoLabel: { fontSize: 10, fontWeight: '700', color: '#6B7280', marginBottom: 4 },
+  imageBox: { width: 100, height: 110, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 4, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  citizenshipBox: { flex: 1, height: 110, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 4, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginHorizontal: 4, overflow: 'hidden', padding: 4 },
+  citLabel: { fontSize: 9, fontWeight: '700', color: '#4B5563', marginBottom: 2 },
+  previewImage: { width: '100%', height: '100%' },
+  imagePlaceholderText: { fontSize: 11, color: '#64748B', fontWeight: '700', textAlign: 'center' },
+  sectionTitle: { fontSize: 13, fontWeight: '800', color: '#1F2937', marginBottom: 8 },
+  memberRowCard: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 8, borderRadius: 4, marginBottom: 8 },
+  removeBtn: { backgroundColor: '#DC2626', justifyContent: 'center', paddingHorizontal: 10, borderRadius: 4 },
+  addRowBtn: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', padding: 10, borderRadius: 4, alignItems: 'center', marginTop: 4 },
+  submitBtn: { backgroundColor: '#881337', padding: 12, borderRadius: 4, alignItems: 'center', marginTop: 8 },
   submitBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  editBanner: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', padding: 10, borderRadius: 4, marginBottom: 12 },
+  editBannerText: { color: '#881337', fontSize: 12, fontWeight: '800' },
+  snack: { position: 'absolute', top: 10, width: '92%', maxWidth: 640, alignSelf: 'center', zIndex: 100, elevation: 12, flexDirection: 'row', padding: 12, borderRadius: 8, borderLeftWidth: 6, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  snackErr: { backgroundColor: '#FEF2F2', borderLeftColor: '#DC2626' },
+  snackWarn: { backgroundColor: '#FFFBEB', borderLeftColor: '#D97706' },
+  snackOk: { backgroundColor: '#F0FDF4', borderLeftColor: '#16A34A' },
+  snackTitle: { fontSize: 13, fontWeight: '800', color: '#111827', marginBottom: 4 },
+  snackMsg: { fontSize: 12, lineHeight: 18, color: '#374151' },
+  snackClose: { fontSize: 16, color: '#6B7280', fontWeight: '800' },
 });

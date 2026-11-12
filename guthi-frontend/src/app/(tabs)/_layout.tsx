@@ -1,167 +1,190 @@
 import React from 'react';
 import { Tabs, useRouter } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
 import { auth } from '../../config/firebase';
 
-export default function TabsLayout() {
+const guthiLogo = require('../../../assets/images/logo.jpg');
+
+function CustomHeader() {
   const router = useRouter();
 
   const handleLogout = async () => {
     await signOut(auth);
-    router.replace('/(auth)/login');
+    router.replace('/login');
   };
 
   return (
-    <Tabs
-      screenOptions={{
-        headerStyle: styles.headerStyle,
-        headerTitleStyle: { display: 'none' },
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: '#881337',
-        tabBarInactiveTintColor: '#475569',
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarItemStyle: styles.tabBarItem,
-        headerLeft: () => (
-          <View style={styles.brandBadge}>
-            <Text style={styles.brandBadgeText}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
-          </View>
-        ),
-        headerRight: () => (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-            <Ionicons name="log-out-outline" size={15} color="#9F1239" style={{ marginRight: 4 }} />
-            <Text style={styles.logoutText}>लगआउट</Text>
-          </TouchableOpacity>
-        ),
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'गृह पृष्ठ',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={20} color={color as string} />
-          ),
+    <View style={styles.headerContainer}>
+      <View style={styles.brandBox}>
+        <Image source={guthiLogo} style={styles.logo} resizeMode="contain" />
+        <Text style={styles.brandTitle} numberOfLines={1}>
+          माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी
+        </Text>
+      </View>
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={16} color="#881337" />
+        <Text style={styles.logoutText}>लगआउट</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+export default function TabLayout() {
+  return (
+    <View style={styles.layout}>
+      <Tabs
+        screenOptions={{
+          header: () => <CustomHeader />,
+          tabBarActiveTintColor: '#881337',
+          tabBarInactiveTintColor: '#4B5563',
+          tabBarStyle: { height: 60, paddingBottom: 8, paddingTop: 6 },
         }}
-      />
-      <Tabs.Screen
-        name="kuldevta"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'कुलदेवता',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'book' : 'book-outline'} size={20} color={color as string} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="samiti"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'समिति',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'people' : 'people-outline'} size={20} color={color as string} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="register"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'दर्ता फारम',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'document-text' : 'document-text-outline'} size={20} color={color as string} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="membership"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'सदस्यता',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'card' : 'card-outline'} size={20} color={color as string} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          headerTitle: '',
-          tabBarLabel: 'प्रोफाइल',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'person' : 'person-outline'} size={20} color={color as string} />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'गृह पृष्ठ',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="home-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="kuldevta"
+          options={{
+            title: 'कुलदेवता',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="book-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="samiti"
+          options={{
+            title: 'समिति',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="people-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="register"
+          options={{
+            title: 'दर्ता फारम',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="document-text-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="membership"
+          options={{
+            title: 'सदस्यता',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'प्रोफाइल',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person-outline" size={size} color={color as string} />
+            ),
+          }}
+        />
+      </Tabs>
+      <TouchableOpacity
+        style={styles.devFooter}
+        onPress={() => Linking.openURL('https://maheshpanta.pantamahesh99.workers.dev/')}
+        activeOpacity={0.8}
+        accessibilityRole="link"
+        accessibilityLabel="यस्तै वेबसाइट वा एप बनाउन विकासकर्तालाई सम्पर्क गर्नुहोस्"
+      >
+        <Text style={styles.devText}>
+          यस्तै वेबसाइट वा एप बनाउन चाहनुहुन्छ?{' '}
+          <Text style={styles.devLink}>विकासकर्तालाई सम्पर्क गर्नुहोस्</Text>
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerStyle: {
-    backgroundColor: '#FFFFFF',
-    height: 64,
-    borderBottomWidth: 2,
-    borderBottomColor: '#881337',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
+  layout: {
+    flex: 1,
   },
-  brandBadge: {
-    backgroundColor: '#881337',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 4,
-    marginLeft: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#D97706',
-  },
-  brandBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 13.5,
-    fontWeight: '800',
-    letterSpacing: -0.1,
-  },
-  tabBar: {
-    backgroundColor: '#FFFFFF',
-    borderTopColor: '#CBD5E1',
-    borderTopWidth: 1.5,
-    height: 64,
-    paddingBottom: 8,
-    paddingTop: 8,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  tabBarItem: {
-    paddingVertical: 2,
-  },
-  tabBarLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  logoutButton: {
+  headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF1F2',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: '#881337',
+  },
+  brandBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  logo: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
     borderWidth: 1,
-    borderColor: '#FECDD3',
-    borderRadius: 4,
+    borderColor: '#E5E7EB',
+  },
+  brandTitle: {
+    backgroundColor: '#881337',
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 13,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    marginRight: 16,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDA4AF',
+    backgroundColor: '#FFF1F2',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 4,
   },
   logoutText: {
-    color: '#9F1239',
+    color: '#881337',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+  devFooter: {
+    backgroundColor: '#FFF8F1',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E7C9B0',
+  },
+  devText: {
+    fontSize: 11,
+    color: '#6B4B3E',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  devLink: {
+    color: '#881337',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
 });
