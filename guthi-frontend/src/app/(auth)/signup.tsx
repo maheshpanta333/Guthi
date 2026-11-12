@@ -9,33 +9,72 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
 
 export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleSignup = () => {
-    if (!fullName || !phone || !password) {
-      alert('कृपया सबै आवश्यक विवरणहरू प्रविष्ट गर्नुहोस्।');
+  const handleSignup = async () => {
+    if (!fullName.trim() || !phone.trim() || !password) {
+      Alert.alert('अपूर्ण विवरण', 'कृपया सबै आवश्यक विवरणहरू भर्नुहोस्।');
       return;
     }
-    router.replace('/(auth)/login');
+
+    if (phone.length < 10) {
+      Alert.alert('त्रुटि', 'कृपया १० अंकको मान्य मोबाइल नम्बर प्रविष्ट गर्नुहोस्।');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Format phone into a secure private identifier token for Auth
+      const secureEmail = `${phone.trim()}@guthi.org.np`;
+
+      // 1. Create Cloud Auth User
+      const userCredential = await createUserWithEmailAndPassword(auth, secureEmail, password);
+      const uid = userCredential.user.uid;
+
+      // 2. Save protected document in Firestore database
+      await setDoc(doc(db, 'users', uid), {
+        uid: uid,
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        role: 'member',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert('सफलता', 'खाता सफलतापूर्वक दर्ता भयो।');
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      console.error(error);
+      if (error.code === 'auth/email-already-in-use') {
+        Alert.alert('त्रुटि', 'यो मोबाइल नम्बर पहिले नै दर्ता भइसकेको छ।');
+      } else {
+        Alert.alert('दर्ता असफल', error.message || 'खाता सिर्जना गर्न सकिएन।');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.innerContainer}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.innerContainer}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.panelBox}>
             <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>नयाँ सदस्याता दर्ता फारम</Text>
+              <Text style={styles.panelTitle}>नयाँ सदस्यता दर्ता फारम</Text>
               <Text style={styles.panelSub}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
             </View>
 
@@ -70,8 +109,15 @@ export default function SignupScreen() {
                 onChangeText={setPassword}
               />
 
-              <TouchableOpacity style={styles.submitButton} onPress={handleSignup} activeOpacity={0.9}>
-                <Text style={styles.submitButtonText}>दर्ता पेश गर्नुहोस् (Register)</Text>
+              <TouchableOpacity 
+                style={[styles.submitButton, loading && styles.disabledButton]} 
+                onPress={handleSignup} 
+                disabled={loading}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.submitButtonText}>
+                  {loading ? 'दर्ता हुँदैछ...' : 'दर्ता पेश गर्नुहोस्'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -100,12 +146,7 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1',
     borderRadius: 4,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 2,
-    marginVertical: 20,
   },
   panelHeader: {
     backgroundColor: '#881337',
@@ -136,6 +177,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
   },
+  disabledButton: { opacity: 0.7 },
   submitButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   panelFooter: {
     backgroundColor: '#F3F4F6',

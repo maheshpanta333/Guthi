@@ -2,11 +2,14 @@ import React from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 
 export default function TabsLayout() {
   const router = useRouter();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut(auth);
     router.replace('/(auth)/login');
   };
 
@@ -20,13 +23,11 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: '#475569',
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarItemStyle: styles.tabBarItem,
-        
         headerLeft: () => (
           <View style={styles.brandBadge}>
             <Text style={styles.brandBadgeText}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
           </View>
         ),
-        
         headerRight: () => (
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
             <Ionicons name="log-out-outline" size={15} color="#9F1239" style={{ marginRight: 4 }} />
@@ -41,7 +42,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'गृह पृष्ठ',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "home" : "home-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={20} color={color as string} />
           ),
         }}
       />
@@ -51,7 +52,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'कुलदेवता',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "book" : "book-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'book' : 'book-outline'} size={20} color={color as string} />
           ),
         }}
       />
@@ -61,7 +62,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'समिति',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "people" : "people-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={20} color={color as string} />
           ),
         }}
       />
@@ -71,7 +72,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'दर्ता फारम',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "document-text" : "document-text-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'document-text' : 'document-text-outline'} size={20} color={color as string} />
           ),
         }}
       />
@@ -81,7 +82,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'सदस्यता',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "card" : "card-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'card' : 'card-outline'} size={20} color={color as string} />
           ),
         }}
       />
@@ -91,7 +92,7 @@ export default function TabsLayout() {
           headerTitle: '',
           tabBarLabel: 'प्रोफाइल',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "person" : "person-outline"} size={20} color={color as string} />
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={20} color={color as string} />
           ),
         }}
       />

@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+guthi-frontend/src/config/firebase.ts
 # Distribution / packaging
 .Python
 build/

@@ -13,6 +13,9 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db, storage } from '../../config/firebase';
 
 interface MemberRow {
   name: string;
@@ -22,8 +25,23 @@ interface MemberRow {
   remarks: string;
 }
 
+// Helper to safely convert local file:// or web blob: URI into a Blob
+const uriToBlob = (uri: string): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = function () {
+      resolve(xhr.response);
+    };
+    xhr.onerror = function () {
+      reject(new Error('Failed to convert image to blob'));
+    };
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send(null);
+  });
+};
+
 export default function RegisterFormScreen() {
-  // Date State
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -34,7 +52,7 @@ export default function RegisterFormScreen() {
   const [fatherOrHusband, setFatherOrHusband] = useState('');
   const [grandfatherOrFatherInLaw, setGrandfatherOrFatherInLaw] = useState('');
   const [contactNo, setContactNo] = useState('');
-  
+
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [memberCount, setMemberCount] = useState<number>(3);
   const [members, setMembers] = useState<MemberRow[]>(
@@ -50,8 +68,8 @@ export default function RegisterFormScreen() {
   const [collectorName, setCollectorName] = useState('');
   const [collectorPost, setCollectorPost] = useState('');
   const [submitterName, setSubmitterName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  // Handle Date Change
   const onDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
     if (selectedDate) {
@@ -68,10 +86,10 @@ export default function RegisterFormScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.7,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -85,12 +103,70 @@ export default function RegisterFormScreen() {
     setMembers(updated);
   };
 
-  const handleSubmit = () => {
-    if (!muliName || !address || !contactNo) {
+  const handleSubmit = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      Alert.alert('त्रुटि', 'कृपया पहिले लगइन गर्नुहोस्।');
+      return;
+    }
+
+    if (!muliName.trim() || !address.trim() || !contactNo.trim()) {
       Alert.alert('अपूर्ण विवरण', 'कृपया परिवारमुलीको नाम, ठेगाना र सम्पर्क नं प्रविष्ट गर्नुहोस्।');
       return;
     }
-    Alert.alert('सफलता', 'पारिवारिक लगत फारम सफलतापूर्वक दर्ता भयो।');
+
+    if (!photoUri) {
+      Alert.alert('फोटो अनिवार्य', 'सदस्यता कायम गर्न कृपया फोटो अपलोड गर्नुहोस्।');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      // 1. Convert image URI to Blob and upload to Firebase Storage
+      const blob = await uriToBlob(photoUri);
+      const storageRef = ref(storage, `registrations/${currentUser.uid}/profile_${Date.now()}.jpg`);
+      await uploadBytes(storageRef, blob);
+      const uploadedPhotoUrl = await getDownloadURL(storageRef);
+
+      // 2. Filter only the active number of family members
+      const activeMembers = members.slice(0, memberCount).map((m, i) => ({
+        sn: i + 1,
+        name: m.name.trim(),
+        age: m.age.trim(),
+        fatherOrHusband: m.fatherOrHusband.trim(),
+        relation: m.relation.trim(),
+        remarks: m.remarks.trim(),
+      }));
+
+      // 3. Save document to Firestore under user's UID
+      await setDoc(doc(db, 'registrations', currentUser.uid), {
+        userId: currentUser.uid,
+        registrationDate: date.toISOString().split('T')[0],
+        photoUrl: uploadedPhotoUrl,
+        muliName: muliName.trim(),
+        muliAge: muliAge.trim(),
+        address: address.trim(),
+        tol: tol.trim(),
+        fatherOrHusband: fatherOrHusband.trim(),
+        grandfatherOrFatherInLaw: grandfatherOrFatherInLaw.trim(),
+        contactNo: contactNo.trim(),
+        memberCount,
+        members: activeMembers,
+        submitterName: submitterName.trim(),
+        collectorName: collectorName.trim(),
+        collectorPost: collectorPost.trim(),
+        status: 'submitted',
+        updatedAt: serverTimestamp(),
+      });
+
+      Alert.alert('सफलता', 'तपाईंको पारिवारिक लगत फारम सुरक्षित रूपमा क्लाउडमा दर्ता भयो।');
+    } catch (error: any) {
+      console.error('Registration Error:', error);
+      Alert.alert('दर्ता असफल', error.message || 'डाटा पठाउन समस्या भयो।');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -107,32 +183,44 @@ export default function RegisterFormScreen() {
 
         {/* Top Info Grid (Date Selector + Photo Card) */}
         <View style={styles.topSectionGrid}>
-          {/* Interactive Date Picker Box */}
           <View style={styles.dateCard}>
             <Text style={styles.inputLabel}>दर्ता मिति (Date)</Text>
-            <TouchableOpacity
-              style={styles.datePickerButton}
-              onPress={() => setShowDatePicker(true)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="calendar-outline" size={18} color="#881337" style={{ marginRight: 8 }} />
-              <Text style={styles.dateButtonText}>
-                {date.toLocaleDateString('en-CA')}
-              </Text>
-            </TouchableOpacity>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={date}
-                mode="date"
-                display="default"
-                onChange={onDateChange}
-              />
+            {Platform.OS === 'web' ? (
+              <View style={styles.datePickerButton}>
+                <Ionicons name="calendar-outline" size={18} color="#881337" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.dateButtonText}
+                  value={date.toISOString().split('T')[0]}
+                  onChangeText={(text) => {
+                    const parsed = new Date(text);
+                    if (!isNaN(parsed.getTime())) setDate(parsed);
+                  }}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowDatePicker(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="calendar-outline" size={18} color="#881337" style={{ marginRight: 8 }} />
+                  <Text style={styles.dateButtonText}>{date.toLocaleDateString('en-CA')}</Text>
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={date}
+                    mode="date"
+                    display="default"
+                    onChange={onDateChange}
+                  />
+                )}
+              </>
             )}
             <Text style={styles.dateSubText}>फारम पेस गरिने मिति स्वतः चयन हुन्छ</Text>
           </View>
 
-          {/* Photo Upload Card */}
           <TouchableOpacity style={styles.photoUploadCard} onPress={handlePickImage} activeOpacity={0.85}>
             {photoUri ? (
               <View style={styles.photoPreviewWrapper}>
@@ -280,8 +368,15 @@ export default function RegisterFormScreen() {
         </View>
 
         {/* Submit Action */}
-        <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} activeOpacity={0.9}>
-          <Text style={styles.submitBtnText}>पारिवारिक विवरण दर्ता गर्नुहोस्</Text>
+        <TouchableOpacity
+          style={[styles.submitBtn, submitting && { opacity: 0.7 }]}
+          onPress={handleSubmit}
+          disabled={submitting}
+          activeOpacity={0.9}
+        >
+          <Text style={styles.submitBtnText}>
+            {submitting ? 'दर्ता हुँदैछ...' : 'पारिवारिक विवरण दर्ता गर्नुहोस्'}
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -342,7 +437,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  dateButtonText: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  dateButtonText: { fontSize: 14, fontWeight: '700', color: '#0F172A', flex: 1 },
   dateSubText: { fontSize: 10.5, color: '#64748B', marginTop: 4 },
   photoUploadCard: {
     width: 140,
@@ -418,7 +513,6 @@ const styles = StyleSheet.create({
   chipButtonActive: { backgroundColor: '#881337', borderColor: '#881337' },
   chipText: { fontSize: 12, fontWeight: '700', color: '#334155' },
   chipTextActive: { color: '#FFFFFF' },
-
   tableWrapper: {
     borderWidth: 1,
     borderColor: '#CBD5E1',

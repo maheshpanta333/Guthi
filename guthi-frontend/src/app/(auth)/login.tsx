@@ -8,36 +8,57 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = () => {
-    if (!phone || !password) {
-      alert('कृपया मोबाइल नम्बर र पासवर्ड प्रविष्ट गर्नुहोस्।');
+  const handleLogin = async () => {
+    if (!phone.trim() || !password) {
+      Alert.alert('अपूर्ण विवरण', 'कृपया मोबाइल नम्बर र पासवर्ड प्रविष्ट गर्नुहोस्।');
       return;
     }
-    router.replace('/(tabs)');
+
+    setLoading(true);
+
+    try {
+      const secureEmail = `${phone.trim()}@guthi.org.np`;
+      const userCredential = await signInWithEmailAndPassword(auth, secureEmail, password);
+      const uid = userCredential.user.uid;
+
+      // Check role directly from Firestore and route automatically
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      const role = userDoc.exists() ? userDoc.data().role : 'user';
+
+      if (role === 'admin') {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/(tabs)');
+      }
+    } catch (error: any) {
+      Alert.alert('लगइन असफल', 'मोबाइल नम्बर वा पासवर्ड मिलेन।');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.innerContainer}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.innerContainer}>
         <View style={styles.panelBox}>
-          {/* Panel Header */}
           <View style={styles.panelHeader}>
-            <Text style={styles.panelTitle}>गुठी सदस्य लगइन (Member Portal)</Text>
+            <Text style={styles.panelTitle}>गुठी पोर्टल लगइन</Text>
             <Text style={styles.panelSub}>माण्डव्य बजगाईं जाल्पा देवी कुलदेवता गुठी</Text>
           </View>
 
-          {/* Form Fields */}
           <View style={styles.formContainer}>
             <Text style={styles.inputLabel}>मोबाइल नम्बर (Mobile Number)</Text>
             <TextInput
@@ -60,12 +81,18 @@ export default function LoginScreen() {
               onChangeText={setPassword}
             />
 
-            <TouchableOpacity style={styles.submitButton} onPress={handleLogin} activeOpacity={0.9}>
-              <Text style={styles.submitButtonText}>प्रवेश गर्नुहोस् (Login)</Text>
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.disabledButton]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.submitButtonText}>
+                {loading ? 'प्रवेश हुँदैछ...' : 'प्रवेश गर्नुहोस् (Login)'}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Footer Link */}
           <View style={styles.panelFooter}>
             <Text style={styles.footerText}>खाता छैन? </Text>
             <Link href="/(auth)/signup" style={styles.footerLink}>
@@ -89,10 +116,6 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1',
     borderRadius: 4,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 2,
   },
   panelHeader: {
@@ -124,6 +147,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
   },
+  disabledButton: { opacity: 0.7 },
   submitButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   panelFooter: {
     backgroundColor: '#F3F4F6',
