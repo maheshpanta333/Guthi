@@ -54,3 +54,20 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Deploy to Cloudflare Pages
+
+Set these variables in Cloudflare Pages under **Settings > Environment variables** for each environment you deploy. Expo embeds `EXPO_PUBLIC_` values into the client bundle at build time:
+
+- `EXPO_PUBLIC_FIREBASE_API_KEY`
+- `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
+- `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `EXPO_PUBLIC_FIREBASE_APP_ID`
+
+For local builds, copy `.env.example` to `.env` and fill in the values from your Firebase web app configuration.
+
+Configure the Cloudflare Pages project with `guthi-frontend` as its root directory, `npx expo export --platform web` as the build command, and `dist` as the output directory. The `public/_redirects` file sends direct URL requests to the Expo Router app, so refreshing a route continues to work.
+
+In Firebase Authentication settings, add the exact deployed `<project>.pages.dev` hostname and any custom domain to **Authorized domains** (add preview hostnames separately if you use them). If your Google Cloud API key has HTTP referrer restrictions, allow the Pages and custom-domain referrers there too. Firebase client configuration is included in the public web bundle; protect data with Firebase Authentication and Security Rules, not by treating these values as secrets.: Chat with Expo users and ask questions.
