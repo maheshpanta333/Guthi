@@ -2,11 +2,8 @@
 __pycache__/
 *.py[codz]
 *$py.class
-guthi-frontend/src/config/firebase.ts
 # C extensions
 *.so
-guthi-frontend/src/config/firebase.ts
-guthi-frontend/src/config/
 # Distribution / packaging
 .Python
 build/
