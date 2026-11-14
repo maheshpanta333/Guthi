@@ -4,6 +4,14 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth } from '../config/firebase';
 import { Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { handleUserRouting } from '../utils/authNavigation';
+import { useFonts } from 'expo-font';
+import FontAwesome from '@expo/vector-icons/build/FontAwesome';
+import MaterialIcons from '@expo/vector-icons/build/MaterialIcons';
+import Ionicons from '@expo/vector-icons/build/Ionicons';
+import * as SplashScreen from 'expo-splash-screen';
+
+// Prevent splash screen from auto-hiding before fonts and auth load
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [initializing, setInitializing] = useState(true);
@@ -12,6 +20,13 @@ export default function RootLayout() {
   const [routeError, setRouteError] = useState<string | null>(null);
   const router = useRouter();
   const segments = useSegments();
+
+  // Load vector icon fonts so they render properly on Web and Mobile
+  const [fontsLoaded, fontError] = useFonts({
+    ...FontAwesome.font,
+    ...MaterialIcons.font,
+    ...Ionicons.font,
+  });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (authUser) => {
@@ -22,7 +37,7 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (initializing) return;
+    if (initializing || !fontsLoaded) return;
 
     const inAuthGroup = segments[0] === '(auth)';
 
@@ -38,9 +53,16 @@ export default function RootLayout() {
         );
       }).finally(() => setIsRouting(false));
     }
-  }, [user, initializing, segments, router]);
+  }, [user, initializing, fontsLoaded, segments, router]);
 
-  if (initializing) {
+  // Hide splash screen once initialization and fonts are ready
+  useEffect(() => {
+    if ((!initializing && fontsLoaded) || fontError) {
+      void SplashScreen.hideAsync();
+    }
+  }, [initializing, fontsLoaded, fontError]);
+
+  if (initializing || (!fontsLoaded && !fontError)) {
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#881337" />

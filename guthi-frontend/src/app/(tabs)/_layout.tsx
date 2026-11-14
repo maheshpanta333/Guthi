@@ -39,7 +39,17 @@ export default function TabLayout() {
           header: () => <CustomHeader />,
           tabBarActiveTintColor: '#881337',
           tabBarInactiveTintColor: '#4B5563',
-          tabBarStyle: { height: 60, paddingBottom: 8, paddingTop: 6 },
+          // Updated tabBarStyle to support wrapping and flexible mobile viewports
+          tabBarStyle: {
+            height: 'auto',
+            minHeight: 60,
+            flexWrap: 'wrap',
+            paddingBottom: 6,
+            paddingTop: 6,
+          },
+          tabBarItemStyle: {
+            minWidth: 80, // Ensures tabs don't squish too much when wrapping
+          },
         }}
       >
         <Tabs.Screen

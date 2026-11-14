@@ -43,7 +43,7 @@ export default function LoginScreen() {
         <Text style={styles.label}>इमेल (Email):</Text>
         <TextInput 
           style={styles.input} 
-          placeholder="admin@guthi.com" 
+          placeholder="yourname@example.com" 
           autoCapitalize="none"
           keyboardType="email-address"
           value={email} 
